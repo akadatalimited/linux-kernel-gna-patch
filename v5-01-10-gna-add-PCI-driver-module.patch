@@ -1,0 +1,235 @@
+diff --git a/Documentation/gpu/drivers.rst b/Documentation/gpu/drivers.rst
+index 3a52f48215a3..7238ddc576a2 100644
+--- a/Documentation/gpu/drivers.rst
++++ b/Documentation/gpu/drivers.rst
+@@ -5,6 +5,7 @@ GPU Driver Documentation
+ .. toctree::
+ 
+    amdgpu/index
++   gna
+    i915
+    mcde
+    meson
+diff --git a/Documentation/gpu/gna.rst b/Documentation/gpu/gna.rst
+new file mode 100644
+index 000000000000..7f3b7ce7e8f7
+--- /dev/null
++++ b/Documentation/gpu/gna.rst
+@@ -0,0 +1,64 @@
++.. SPDX-License-Identifier: GPL-2.0-only
++
++=====================================================
++Intel(R) Gaussian & Neural Accelerator (Intel(R) GNA)
++=====================================================
++
++Acronyms
++--------
++GNA	- Gaussian & Neural Accelerator
++GMM	- Gaussian Mixer Model
++CNN	- Convolutional Neural Network
++RNN	- Recurrent Neural Networks
++DNN	- Deep Neural Networks
++
++Introduction
++------------
++The Intel(R) GNA is an internal PCI fixed device available on several Intel platforms/SoCs.
++Feature set depends on the Intel chipset SKU.
++
++Intel(R) GNA provides hardware accelerated computation for GMMs and Neural Networks.
++It supports several layer types: affine, recurrent, and convolutional among others.
++Hardware also provides helper layer types for copying and transposing matrices.
++
++Linux Driver
++------------
++The driver also registers a DRM's render device to expose file operations via dev node.
++
++The driver probes/removes a PCI device, implements file operations, handles runtime
++power management, and interacts with hardware through MMIO registers.
++
++Multiple processes can independently file many requests to the driver. These requests are
++processed in a FIFO manner. The hardware can process one request at a time by using a FIFO
++queue.
++
++IOCTL
++-----
++Intel(R) GNA driver controls the device through IOCTL interfaces.
++Following IOCTL commands - handled by DRM framework - are supported:
++
++GNA_GET_PARAMETER gets driver and device capabilities.
++
++GNA_GEM_NEW acquires new 4KB page aligned memory region ready for DMA operations.
++
++GNA_GEM_FREE frees memory region back to system.
++
++GNA_COMPUTE submits a request to the device queue.
++            Memory regions acquired by GNA_GEM_NEW are part of request.
++
++GNA_WAIT blocks and waits on the submitted request.
++
++GNA MMU
++-------
++GNA’s MMU is being configured based on specific request memory usage. As the MMU can
++address up to 256MB a single scoring request is limited to this amount of memory being
++used.
++
++GNA Library can allocate any number of memory regions for GNA usage. Its number and total
++capacity are limited by the OSs’ resources. Due to GNA MMU restrictions, even when using
++multiple memory regions, the sum of all the memory regions used within a single inference
++request must be no larger than 256MB.
++
++At least a single GNA memory region is needed to be allocated (and can be shared by
++multiple models). At the other extreme, each GNA tensor (e.g.,
++weights/biases/inputs/outputs) could use its own, separate GNA memory region.
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 72b9654f764c..d5b966c00155 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -10174,6 +10174,12 @@ S:	Maintained
+ F:	Documentation/fb/intelfb.rst
+ F:	drivers/video/fbdev/intelfb/
+ 
++INTEL GNA PCI DRIVER
++M:	Maciej Kwapulinski <maciej.kwapulinski@linux.intel.com>
++S:	Maintained
++F:	Documentation/gpu/gna.rst
++F:	drivers/gpu/drm/gna/*
++
+ INTEL GPIO DRIVERS
+ M:	Andy Shevchenko <andy@kernel.org>
+ L:	linux-gpio@vger.kernel.org
+diff --git a/drivers/gpu/drm/Kconfig b/drivers/gpu/drm/Kconfig
+index 6c2256e8474b..3f5720b9db1f 100644
+--- a/drivers/gpu/drm/Kconfig
++++ b/drivers/gpu/drm/Kconfig
+@@ -403,6 +403,8 @@ source "drivers/gpu/drm/solomon/Kconfig"
+ 
+ source "drivers/gpu/drm/sprd/Kconfig"
+ 
++source "drivers/gpu/drm/gna/Kconfig"
++
+ config DRM_HYPERV
+ 	tristate "DRM Support for Hyper-V synthetic video device"
+ 	depends on DRM && PCI && MMU && HYPERV
+diff --git a/drivers/gpu/drm/Makefile b/drivers/gpu/drm/Makefile
+index e7af358e6dda..e088267f349d 100644
+--- a/drivers/gpu/drm/Makefile
++++ b/drivers/gpu/drm/Makefile
+@@ -147,3 +147,4 @@ obj-y			+= gud/
+ obj-$(CONFIG_DRM_HYPERV) += hyperv/
+ obj-y			+= solomon/
+ obj-$(CONFIG_DRM_SPRD) += sprd/
++obj-$(CONFIG_DRM_GNA) += gna/
+diff --git a/drivers/gpu/drm/gna/Kbuild b/drivers/gpu/drm/gna/Kbuild
+new file mode 100644
+index 000000000000..00e8d6a2c49c
+--- /dev/null
++++ b/drivers/gpu/drm/gna/Kbuild
+@@ -0,0 +1,5 @@
++# SPDX-License-Identifier: GPL-2.0-only
++
++gna-y := gna_device.o gna_pci.o
++
++obj-$(CONFIG_DRM_GNA) += gna.o
+diff --git a/drivers/gpu/drm/gna/Kconfig b/drivers/gpu/drm/gna/Kconfig
+new file mode 100644
+index 000000000000..467f518db7fa
+--- /dev/null
++++ b/drivers/gpu/drm/gna/Kconfig
+@@ -0,0 +1,12 @@
++#
++# Intel(R) Gaussian & Neural Accelerator (Intel(R) GNA)
++#
++
++config DRM_GNA
++	tristate "Intel(R) Gaussian & Neural Accelerator (Intel(R) GNA)"
++	depends on X86 && PCI
++	help
++	  This option enables the Intel(R) Gaussian & Neural Accelerator
++	  (Intel(R) GNA) driver: gna
++	  Information about functionality is in
++	  Documentation/gpu/gna.rst
+diff --git a/drivers/gpu/drm/gna/gna_device.c b/drivers/gpu/drm/gna/gna_device.c
+new file mode 100644
+index 000000000000..960b4341c18e
+--- /dev/null
++++ b/drivers/gpu/drm/gna/gna_device.c
+@@ -0,0 +1,8 @@
++// SPDX-License-Identifier: GPL-2.0-only
++// Copyright(c) 2017-2022 Intel Corporation
++
++#include <linux/module.h>
++
++MODULE_AUTHOR("Intel Corporation");
++MODULE_DESCRIPTION("Intel(R) Gaussian & Neural Accelerator (Intel(R) GNA) Driver");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/gpu/drm/gna/gna_device.h b/drivers/gpu/drm/gna/gna_device.h
+new file mode 100644
+index 000000000000..4cc92f27765a
+--- /dev/null
++++ b/drivers/gpu/drm/gna/gna_device.h
+@@ -0,0 +1,9 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Copyright(c) 2017-2022 Intel Corporation */
++
++#ifndef __GNA_DEVICE_H__
++#define __GNA_DEVICE_H__
++
++#define DRIVER_NAME		"gna"
++
++#endif /* __GNA_DEVICE_H__ */
+diff --git a/drivers/gpu/drm/gna/gna_pci.c b/drivers/gpu/drm/gna/gna_pci.c
+new file mode 100644
+index 000000000000..6bd00c66f3a7
+--- /dev/null
++++ b/drivers/gpu/drm/gna/gna_pci.c
+@@ -0,0 +1,32 @@
++// SPDX-License-Identifier: GPL-2.0-only
++// Copyright(c) 2017-2022 Intel Corporation
++
++#include <linux/module.h>
++#include <linux/pci.h>
++
++#include "gna_device.h"
++#include "gna_pci.h"
++
++int gna_pci_probe(struct pci_dev *pcidev, const struct pci_device_id *pci_id)
++{
++	int err;
++
++	err = pcim_enable_device(pcidev);
++	if (err)
++		return err;
++
++	err = pcim_iomap_regions(pcidev, BIT(0), pci_name(pcidev));
++	if (err)
++		return err;
++
++	pci_set_master(pcidev);
++
++	return 0;
++}
++
++static struct pci_driver gna_pci_driver = {
++	.name = DRIVER_NAME,
++	.probe = gna_pci_probe,
++};
++
++module_pci_driver(gna_pci_driver);
+diff --git a/drivers/gpu/drm/gna/gna_pci.h b/drivers/gpu/drm/gna/gna_pci.h
+new file mode 100644
+index 000000000000..b651fa2e6ea1
+--- /dev/null
++++ b/drivers/gpu/drm/gna/gna_pci.h
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Copyright(c) 2017-2022 Intel Corporation */
++
++#ifndef __GNA_PCI_H__
++#define __GNA_PCI_H__
++
++struct pci_device_id;
++struct pci_dev;
++
++int gna_pci_probe(struct pci_dev *dev, const struct pci_device_id *id);
++
++#endif /* __GNA_PCI_H__ */
