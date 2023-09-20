@@ -1,0 +1,3 @@
+found these patches here https://lore.kernel.org/lkml/20210216160525.5028-1-maciej.kwapulinski@linux.intel.com/T/#mdc7f1ccb7aa087275cf971da6753ccec885bd80d
+
+and they appear to load into the kernel automaticly on boot
