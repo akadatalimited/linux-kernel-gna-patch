@@ -1,2 +1,78 @@
-there is a little fluff and 2 manual edits needed and it compiles against linux-6.5.3 and loads gna kmod
+# Compile Intel(R) Gaussian & Neural Accelerator (Intel(R) GNA) into Linux Kernel 6.5.3
+# 
+# First, ensure that you have the Linux 6.5.3 sources available.
 
+# Create a symbolic link to the Linux 6.5.3 directory
+ln -s linux-6.5.3 b
+
+# Apply the necessary patches from the linux-kernel-gna-patch directory
+for i in linux-kernel-gna-patch/drm_gna; do 
+    patch -p0 < $i; 
+done
+
+# Navigate into the Linux 6.5.3 directory
+cd linux-6.5.3
+
+# Clean up any existing build artifacts
+make mrproper
+make clean
+
+# Option 1: Copy and unzip the existing kernel configuration
+cp /proc/config.gz .
+gunzip config.gz
+cp config .config
+
+# OR Option 2: Copy a predefined kernel configuration
+# copy linux-kernel-gna-patch/kernel.config /usr/src/linux-6.5.3/.config
+
+# Open menu configuration for kernel
+make menuconfig
+
+# Navigate to Device Drivers > Graphics Support > 
+# Intel(R) Gaussian & Neural Accelerator (Intel(R) GNA) and add it as a module or built into the kernel
+
+# Compile the kernel
+make -j $cores
+
+# Install the kernel modules
+make modules_install
+
+# Copy the built kernel image to the boot directory
+cp arch/x86/boot/bzImage /boot/vmlinux_gna
+
+# Generate an initial ramdisk
+mkinitcpio ... # your options against 6.5.3 kernel 
+
+# Update the grub configuration
+update-grub  # Note: The original said 'grub.cgh' which is likely a typo
+
+# Reboot your system
+reboot
+
+# After reboot, check for loaded modules
+lsmod | grep gna
+
+# For more details on your GNA hardware
+lspci | grep -i gna
+
+# Special note on Kernel config
+# Kernel .config should have CONFIG_DRM_GNA=m
+
+# Get the GNA repository with the fixed headers for helper libraries 
+git clone https://github.com/akadata/gna/tree/fix_drm_headers
+
+# Checkout the fix_drm_headers branch and follow its instructions
+cd build
+cmake ../
+make 
+make install
+
+
+# Acknowledgments
+# Compliments to : https://github.com/ctrlaltca/gna/tree/fix_drm_h who made the header fix
+
+# Important: 
+# https://github.com/intel/gna does not compile on Arch Linux.
+
+# Note on additional patch set:
+# Another patch found in intel_gna set gives drivers/misc/intel_gna but is incompatible with v6.5.x kernel. It requires v5.x.x kernel.
