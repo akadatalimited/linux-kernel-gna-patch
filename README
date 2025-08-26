@@ -88,12 +88,53 @@ make test
 
 ## Building with DKMS
 
-The module can be built and installed for other kernels using [DKMS](https://github.com/dell/dkms). The following example builds for kernel version 6.12.43:
+The module can be rebuilt automatically for arbitrary kernels using
+[DKMS](https://github.com/dell/dkms). After extracting this repository so
+that `dkms.conf` is in the top level directory:
 
-```
-sudo dkms add .
-sudo dkms build gna/0.1 -k 6.12.43
-sudo dkms install gna/0.1 -k 6.12.43
-```
+1. Register the source with DKMS:
 
-Replace `6.12.43` with the kernel version you wish to target.
+   ```bash
+   sudo dkms add $(pwd)
+   ```
+
+   This creates the `gna/0.1` entry under `/usr/src`.
+
+2. Build and install for a specific kernel (replace `<kernel_version>` with
+   the desired version, e.g. the output of `uname -r`):
+
+   ```bash
+   sudo dkms build gna/0.1 -k <kernel_version>
+   sudo dkms install gna/0.1 -k <kernel_version>
+   ```
+
+   Ensure the headers for the target kernel are installed.
+
+3. To uninstall the module for a given kernel:
+
+   ```bash
+   sudo dkms remove gna/0.1 -k <kernel_version>
+   ```
+
+### Kernel Version Notes
+
+This driver targets Linux 6.x kernels and has been tested with 6.5 and
+6.12 releases.  Kernels in the 5.x series use a different upstream driver
+(`drivers/misc/intel_gna`) and are not compatible with these sources
+without significant backports.  Newer 6.x kernels may require minor
+adjustments if DRM or core APIs change.
+
+### Troubleshooting
+
+* **Missing symbols or API changes** – If `dkms build` reports undefined
+  symbols or missing structure fields, verify that the target kernel is
+  supported and its headers are installed.  Compare the failing symbol
+  with the kernel sources and update the driver to match any API changes.
+* **Missing configuration options** – Confirm that the kernel is built with
+  `CONFIG_DRM` and `CONFIG_DRM_GNA` enabled (either built in or as a
+  module).  Absent options can cause the module to fail to link.
+* **Stale builds** – Clean previous DKMS builds when switching kernels:
+
+  ```bash
+  sudo dkms remove gna/0.1 --all
+  ```
