@@ -85,3 +85,15 @@ sudo make install
 
 # Run basic test
 make test
+
+## Building with DKMS
+
+The module can be built and installed for other kernels using [DKMS](https://github.com/dell/dkms). The following example builds for kernel version 6.12.43:
+
+```
+sudo dkms add .
+sudo dkms build gna/0.1 -k 6.12.43
+sudo dkms install gna/0.1 -k 6.12.43
+```
+
+Replace `6.12.43` with the kernel version you wish to target.
