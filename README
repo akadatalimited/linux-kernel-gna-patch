@@ -77,7 +77,11 @@ make install
 # Note on additional patch set:
 # Another patch found in intel_gna set gives drivers/misc/intel_gna but is incompatible with v6.5.x kernel. It requires v5.x.x kernel.
 
-# Build and run the userland GNA tool
-cd userland
+# Build kernel module and userland
 make
-./gna_tool
+
+# Install kernel module and userland tool
+sudo make install
+
+# Run basic test
+make test
