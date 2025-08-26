@@ -6,9 +6,13 @@
 ln -s linux-6.5.3 b
 
 # Apply the necessary patches from the linux-kernel-gna-patch directory
-for i in linux-kernel-gna-patch/drm_gna; do 
-    patch -p0 < $i; 
+# These patches are generated with `git format-patch` and expect a patch level of `-p1`.
+for i in linux-kernel-gna-patch/drm_gna/*.patch; do
+    patch -p1 < "$i"
 done
+# Example output:
+# patching file Documentation/gpu/drivers.rst
+# patching file Documentation/gpu/gna.rst
 
 # Navigate into the Linux 6.5.3 directory
 cd linux-6.5.3
